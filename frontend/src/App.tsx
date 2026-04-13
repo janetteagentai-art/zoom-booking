@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import ProfessorDashboard from './pages/ProfessorDashboard';
 import AdminDashboard from './pages/AdminDashboard';
+import WeeklyCalendar from './pages/WeeklyCalendar';
 
 const ProtectedRoute = ({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) => {
   const { user, loading } = useAuth();
@@ -37,6 +38,14 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <ProfessorDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/reservas-semanales"
+        element={
+          <ProtectedRoute>
+            <WeeklyCalendar />
           </ProtectedRoute>
         }
       />

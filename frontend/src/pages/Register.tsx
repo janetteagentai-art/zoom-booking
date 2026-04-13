@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { authApi } from '../utils/api';
+import { authService } from '../services/authService';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Register() {
@@ -17,7 +17,7 @@ export default function Register() {
     setError('');
     setLoading(true);
     try {
-      const { data } = await authApi.register({ email, password, name });
+      const { data } = await authService.register({ email, password, name });
       login(data.token, data.professor);
       navigate('/mis-reservas');
     } catch (err: any) {
@@ -31,6 +31,9 @@ export default function Register() {
   return (
     <div className="auth-page">
       <div className="auth-card">
+        <div style={{ textAlign: 'center' }}>
+          <img src="/logo-dcs-large.png" alt="DCS" style={{ maxWidth: 'calc(100% - 20px)', height: 'auto' }} />
+        </div>
         <div className="auth-title">Crear cuenta</div>
         <div className="auth-subtitle">Completá tus datos para registrarte</div>
         {error && <div className="error-box">{error}</div>}

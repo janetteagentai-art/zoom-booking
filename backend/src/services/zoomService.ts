@@ -34,20 +34,29 @@ interface ZoomMeetingResponse {
   };
 }
 
+export interface ZoomCredentials {
+  accountId: string;
+  clientId: string;
+  clientSecret: string;
+}
+
 class ZoomService {
   private accessToken: string | null = null;
   private tokenExpiresAt: number = 0;
 
+  // Per-instance credentials (for account-specific zoom accounts)
+  constructor(private credentials?: ZoomCredentials) {}
+
   private get accountId(): string {
-    return process.env.ZOOM_ACCOUNT_ID || '';
+    return this.credentials?.accountId || process.env.ZOOM_ACCOUNT_ID || '';
   }
 
   private get clientId(): string {
-    return process.env.ZOOM_CLIENT_ID || '';
+    return this.credentials?.clientId || process.env.ZOOM_CLIENT_ID || '';
   }
 
   private get clientSecret(): string {
-    return process.env.ZOOM_CLIENT_SECRET || '';
+    return this.credentials?.clientSecret || process.env.ZOOM_CLIENT_SECRET || '';
   }
 
   get isConfigured(): boolean {
@@ -92,34 +101,46 @@ class ZoomService {
     hostEmail?: string;
     password?: string;
   }): Promise<ZoomMeetingResponse> {
+    // Reset token cache when using per-account credentials
+    if (this.credentials) {
+      this.accessToken = null;
+      this.tokenExpiresAt = 0;
+    }
     const token = await this.getAccessToken();
 
     const startISO = params.startTime.toISOString().replace('.000Z', 'Z');
 
+    // Don't specify timezone when sending UTC - Zoom will use the UTC time as-is.
+    // Previously we sent timezone: 'America/Buenos_Aires' which caused Zoom to add 3 hours
+    // because it interpreted the UTC time as if it were ART.
+    const meetingPayload = {
+      topic: params.topic,
+      type: 2, // scheduled meeting
+      start_time: startISO,
+      duration: params.durationMinutes,
+      password: params.password || undefined,
+      settings: {
+        host_video: true,
+        participant_video: true,
+        embed_password: true,
+        waiting_room: true,
+        auto_recording: 'none',
+      },
+    };
+
     const response = await axios.post<ZoomMeetingResponse>(
       'https://api.zoom.us/v2/users/me/meetings',
-      {
-        topic: params.topic,
-        type: 2, // scheduled meeting
-        start_time: startISO,
-        duration: params.durationMinutes,
-        timezone: 'America/Buenos_Aires',
-        password: params.password || undefined,
-        settings: {
-          host_video: true,
-          participant_video: true,
-          embed_password: true,
-          waiting_room: true,
-          auto_recording: 'none',
-        },
-      },
+      meetingPayload,
       {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
       }
-    );
+    ).catch(err => {
+      console.error('Zoom API Error:', err.response?.status, err.response?.data);
+      throw err;
+    });
 
     return response.data;
   }
@@ -155,4 +176,6 @@ class ZoomService {
   }
 }
 
+// Named export of the class for creating instances with per-account credentials
+export { ZoomService };
 export const zoomService = new ZoomService();

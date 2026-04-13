@@ -1,6 +1,6 @@
 import { AppDataSource } from '../config/data-source';
 import { Booking, BookingStatus, ZoomAccount } from '../entities';
-import { zoomService } from './zoomService';
+import { ZoomService, zoomService } from './zoomService';
 import { Not } from 'typeorm';
 import { parseARTDate } from '../utils/timezone';
 
@@ -12,6 +12,7 @@ export interface CreateBookingInput {
   title: string;
   startTime: Date | string;
   durationMinutes: number;
+  zoomIndex?: number;
 }
 
 export interface BookingSlot {
@@ -26,6 +27,11 @@ async function findOverlapping(
   startTime: Date,
   endTime: Date
 ): Promise<Booking[]> {
+  if (!startTime || isNaN(startTime.getTime()) || !endTime || isNaN(endTime.getTime())) {
+    console.error('findOverlapping: invalid dates', { startTime, endTime });
+    return [];
+  }
+
   const all = await bookingRepo()
     .createQueryBuilder('b')
     .where('b.status != :cancelled', { cancelled: BookingStatus.CANCELLED })
@@ -49,20 +55,36 @@ async function findOverlapping(
  */
 export async function getAvailability(
   startDateRaw: Date | string,
-  endDateRaw: Date | string
+  endDateRaw: Date | string,
+  zoomIndex?: string
 ): Promise<BookingSlot[]> {
   const startDate = typeof startDateRaw === 'string' ? parseARTDate(startDateRaw) : startDateRaw;
   const endDate   = typeof endDateRaw   === 'string' ? parseARTDate(endDateRaw)   : endDateRaw;
 
-  const activeAccounts = await zoomAccountRepo().find({
-    where: { isActive: true },
-  });
+  if (!startDate || isNaN(startDate.getTime()) || !endDate || isNaN(endDate.getTime())) {
+    console.error('getAvailability: invalid dates', { startDateRaw, endDateRaw, startDate, endDate });
+    throw new Error('Invalid date range');
+  }
 
-  if (activeAccounts.length === 0) {
+  let accounts: ZoomAccount[];
+  if (zoomIndex) {
+    const idx = parseInt(zoomIndex, 10);
+    if (isNaN(idx) || idx < 1) throw new Error('zoom debe ser 1, 2, 3...');
+    accounts = await zoomAccountRepo().find({ where: { isActive: true }, order: { createdAt: 'ASC' } });
+    const target = accounts[idx - 1];
+    if (!target) throw new Error(`No existe cuenta Zoom con número ${zoomIndex}`);
+    accounts = [target];
+  } else {
+    accounts = await zoomAccountRepo().find({ where: { isActive: true } });
+  }
+
+  const accountIds = accounts.map(a => a.id);
+  if (accountIds.length === 0) {
     return [];
   }
 
   const bookings = await findOverlapping(startDate, endDate);
+  const filtered = bookings.filter(b => accountIds.includes(b.zoomAccountId));
 
   const slots: BookingSlot[] = [];
   const intervalMs = 30 * 60 * 1000; // 30 min slots
@@ -71,7 +93,7 @@ export async function getAvailability(
   while (current < endDate) {
     const slotEnd = new Date(current.getTime() + 30 * 60 * 1000);
 
-    const overlapping = bookings.find((b) => {
+    const overlapping = filtered.find((b) => {
       const bEnd = new Date(
         b.startTime.getTime() + b.durationMinutes * 60 * 1000
       );
@@ -119,26 +141,59 @@ export async function createBooking(
   }
 
   // input.startTime may come from parsed JSON as a string with ART offset
-  const startTime = typeof input.startTime === 'string'
+  const startTimeObj: Date = typeof input.startTime === 'string'
     ? parseARTDate(input.startTime)
     : input.startTime;
 
   const endTime = new Date(
-    startTime.getTime() + input.durationMinutes * 60 * 1000
+    startTimeObj.getTime() + input.durationMinutes * 60 * 1000
   );
 
-  // Check availability
-  const account = await findAvailableZoomAccount(input.startTime, endTime);
-  if (!account) {
-    throw new Error(
-      'No hay cuenta Zoom disponible para ese horario. Probá otro horario.'
-    );
+  // Check availability — use specified account by index or auto-select
+  let account;
+  if (input.zoomIndex) {
+    const idx = input.zoomIndex;
+    const allAccounts = await zoomAccountRepo().find({ where: { isActive: true }, order: { createdAt: 'ASC' } });
+    const target = allAccounts[idx - 1];
+    if (!target) throw new Error(`No existe cuenta Zoom con número ${idx}`);
+    account = target;
+    const overlapping = await findOverlapping(startTimeObj, endTime);
+    if (overlapping.some(b => b.zoomAccountId === account!.id)) {
+      throw new Error('Esa cuenta Zoom ya está reservada en ese horario. Elegí otro horario o cuenta.');
+    }
+  } else {
+    account = await findAvailableZoomAccount(startTimeObj, endTime);
+    if (!account) {
+      throw new Error(
+        'No hay cuenta Zoom disponible para ese horario. Probá otro horario.'
+      );
+    }
   }
 
-  // Create Zoom meeting
-  const meeting = await zoomService.createMeeting({
+  // Create Zoom meeting using account-specific credentials
+  const zoomSvc = new ZoomService(account.zoomAccountId ? {
+    accountId: account.zoomAccountId,
+    clientId: account.zoomClientId,
+    clientSecret: account.zoomClientSecret,
+  } : undefined);
+
+  console.error('DEBUG createBooking: Creating ZoomService with:', {
+    hasCredentials: !!account.zoomAccountId,
+    hasClientId: !!account.zoomClientId,
+    hasClientSecret: !!account.zoomClientSecret,
+    isConfigured: zoomSvc.isConfigured
+  });
+
+  if (!zoomSvc.isConfigured) {
+    console.error('DEBUG: ZoomService not configured, throwing error');
+    throw new Error('Credenciales Zoom no configuradas para esta cuenta');
+  }
+
+  console.error('DEBUG: Calling zoomSvc.createMeeting...');
+
+  const meeting = await zoomSvc.createMeeting({
     topic: input.title,
-    startTime: input.startTime,
+    startTime: startTimeObj,
     durationMinutes: input.durationMinutes,
   });
 
@@ -147,7 +202,7 @@ export async function createBooking(
     professorId: input.professorId,
     zoomAccountId: account.id,
     title: input.title,
-    startTime: input.startTime,
+    startTime: startTimeObj,
     durationMinutes: input.durationMinutes,
     status: BookingStatus.CONFIRMED,
     zoomMeetingId: String(meeting.id),
@@ -197,19 +252,28 @@ export async function cancelBooking(bookingId: string, professorId: string): Pro
 /**
  * Get all bookings for a professor.
  */
-export async function getProfessorBookings(professorId: string): Promise<Booking[]> {
-  return bookingRepo().find({
+export async function getProfessorBookings(professorId: string): Promise<any[]> {
+  const bookings = await bookingRepo().find({
     where: { professorId },
+    relations: ['zoomAccount'],
     order: { startTime: 'ASC' },
+  });
+  return bookings.map(b => {
+    const { zoomClientSecret, ...rest } = b.zoomAccount || {};
+    return { ...b, zoomAccount: rest };
   });
 }
 
 /**
  * Get all bookings (admin).
  */
-export async function getAllBookings(): Promise<Booking[]> {
-  return bookingRepo().find({
+export async function getAllBookings(): Promise<any[]> {
+  const bookings = await bookingRepo().find({
     relations: ['professor', 'zoomAccount'],
     order: { startTime: 'ASC' },
+  });
+  return bookings.map(b => {
+    const { zoomClientSecret, ...rest } = b.zoomAccount || {};
+    return { ...b, zoomAccount: rest };
   });
 }

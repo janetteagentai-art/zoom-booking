@@ -26,6 +26,10 @@ export interface ZoomAccount {
   email: string;
   isActive: boolean;
   createdAt: string;
+  color: string;
+  zoomAccountId: string;
+  zoomClientId: string;
+  zoomClientSecret: string;
 }
 
 export interface Booking {
@@ -40,6 +44,7 @@ export interface Booking {
   zoomPassword: string;
   zoomStartUrl: string;
   zoomAccountId: string;
+  zoomAccount?: ZoomAccount;
   professor?: Professor;
 }
 
@@ -63,18 +68,18 @@ export const authApi = {
 export const bookingsApi = {
   getAvailability: (start: string, end: string) =>
     api.get<Slot[]>('/bookings/availability', { params: { start, end } }),
-  list: () => api.get<Booking[]>('/bookings'),
+  list: (all = false) => api.get<Booking[]>('/bookings', { params: { all } }),
   create: (data: { title: string; startTime: string; durationMinutes: number }) =>
     api.post<Booking>('/bookings', data),
   cancel: (id: string) => api.delete(`/bookings/${id}`),
 };
 
-// ── Zoom Accounts (admin) ─────────────────────
+// ── Zoom Accounts ─────────────────────
 export const zoomAccountsApi = {
   list: () => api.get<ZoomAccount[]>('/zoom-accounts'),
-  create: (data: { label: string; email?: string }) =>
+  create: (data: { label: string; email?: string; color?: string; zoomAccountId?: string; zoomClientId?: string; zoomClientSecret?: string }) =>
     api.post<ZoomAccount>('/zoom-accounts', data),
-  update: (id: string, data: Partial<ZoomAccount>) =>
+  update: (id: string, data: { label?: string; email?: string; isActive?: boolean; color?: string; zoomAccountId?: string; zoomClientId?: string; zoomClientSecret?: string }) =>
     api.patch<ZoomAccount>(`/zoom-accounts/${id}`, data),
   delete: (id: string) => api.delete(`/zoom-accounts/${id}`),
 };

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { authApi } from '../utils/api';
+import { authService } from '../services/authService';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Login() {
@@ -16,7 +16,7 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      const { data } = await authApi.login({ email, password });
+      const { data } = await authService.login({ email, password });
       login(data.token, data.professor);
       navigate(data.professor.role === 'admin' ? '/admin' : '/mis-reservas');
     } catch (err: any) {
@@ -30,6 +30,9 @@ export default function Login() {
   return (
     <div className="auth-page">
       <div className="auth-card">
+        <div style={{ textAlign: 'center' }}>
+          <img src="/logo-dcs-large.png" alt="DCS" style={{ maxWidth: 'calc(100% - 20px)', height: 'auto' }} />
+        </div>
         <div className="auth-title">Iniciar sesión</div>
         <div className="auth-subtitle">Reserva de Videoconferencias</div>
         {error && <div className="error-box">{error}</div>}

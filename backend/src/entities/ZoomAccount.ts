@@ -22,8 +22,28 @@ export class ZoomAccount {
   @Column({ nullable: true })
   zoomUserId!: string; // Zoom user ID ( zak / PMI )
 
-  @Column({ default: true })
-  isActive!: boolean; // enable/disable this account
+  @Column({ nullable: true })
+  isActive!: boolean;
+
+  @Column({ nullable: true })
+  color!: string; // hex color, e.g. "#ef4444" // enable/disable this account
+
+  // Per-account Zoom API credentials (Server-to-Server OAuth)
+  @Column({ nullable: true })
+  zoomAccountId!: string; // Zoom Account ID for this account
+
+  @Column({ nullable: true })
+  zoomClientId!: string; // Zoom Client ID for this account (OAuth)
+
+  @Column({ nullable: true })
+  zoomClientSecret!: string; // Zoom Client Secret for this account (OAuth)
+
+  // Per-account Zoom Meeting SDK credentials
+  @Column({ nullable: true })
+  zoomSdkKey!: string; // Zoom SDK Key (Meeting SDK app)
+
+  @Column({ nullable: true })
+  zoomSdkSecret!: string; // Zoom SDK Secret (Meeting SDK app)
 
   @CreateDateColumn()
   createdAt!: Date;
